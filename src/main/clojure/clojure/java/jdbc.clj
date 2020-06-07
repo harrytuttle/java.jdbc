@@ -556,7 +556,7 @@ http://clojure-doc.org/articles/ecosystem/java_jdbc/home.html"}
   The :qualifier option specifies the namespace qualifier for those identifiers
   (and this may not be specified when :keywordize? is false)."
   ([rs] (result-set-seq rs {}))
-  ([^ResultSet rs {:keys [as-arrays? identifiers keywordize?
+  ([^ResultSet rs {:keys [as-arrays? as-arraymaps? identifiers keywordize?
                           qualifier read-columns]
                    :or {identifiers lower-case
                         keywordize? true
@@ -571,22 +571,18 @@ http://clojure-doc.org/articles/ecosystem/java_jdbc/home.html"}
                                                       keywordize?)))
                     idxs)
          row-values (fn [] (read-columns rs rsmeta idxs))
-         ;; This used to use create-struct (on keys) and then struct to populate each row.
-         ;; That had the side effect of preserving the order of columns in each row. As
-         ;; part of JDBC-15, this was changed because structmaps are deprecated. We don't
-         ;; want to switch to records so we're using regular maps instead. We no longer
-         ;; guarantee column order in rows but using into {} should preserve order for up
-         ;; to 16 columns (because it will use a PersistentArrayMap). If someone is relying
-         ;; on the order-preserving behavior of structmaps, we can reconsider...
-         records (fn thisfn []
-                   (when (.next rs)
-                     (cons (zipmap keys (row-values)) (lazy-seq (thisfn)))))
-         rows (fn thisfn []
+         maps (fn thisfn []
                 (when (.next rs)
-                  (cons (vec (row-values)) (lazy-seq (thisfn)))))]
-     (if as-arrays?
-       (cons (vec keys) (rows))
-       (records)))))
+                  (cons (zipmap keys (row-values)) (lazy-seq (thisfn)))))
+         arraymaps (fn thisfn []
+                     (when (.next rs)
+                       (cons (apply array-map (interleave keys (row-values))) (lazy-seq (thisfn)))))
+         arrays (fn thisfn []
+                  (when (.next rs)
+                    (cons (vec (row-values)) (lazy-seq (thisfn)))))]
+     (cond as-arrays?    (cons (vec keys) (arrays))
+           as-arraymaps? (arraymaps)
+           :else         (maps)))))
 
 (defn- execute-batch
   "Executes a batch of SQL commands and returns a sequence of update counts.
